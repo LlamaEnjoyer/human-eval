@@ -8,6 +8,7 @@ import tempfile
 from multiprocessing import Manager, Process
 import threading
 import ctypes
+import time
 
 def unsafe_execute(problem: Dict[str, Any], completion: str, timeout: float, result: List):
     with create_tempdir():
@@ -28,16 +29,28 @@ def unsafe_execute(problem: Dict[str, Any], completion: str, timeout: float, res
                 f"check({problem['entry_point']})"
         )
 
+        start_time = time.time()
         try:
             exec_globals = {}
             with swallow_io():
                 with time_limit(timeout):
                     exec(check_program, exec_globals)
-            result.append("passed")
+            result.append({
+                "status": "passed",
+                "execution_time": time.time() - start_time
+            })
         except TimeoutException:
-            result.append("timed out")
-        except BaseException as e:
-            result.append(f"failed: {e}")
+            result.append({
+                "status": "timed out",
+                "execution_time": time.time() - start_time
+            })
+        except Exception as e:
+            result.append({
+                "status": "failed",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "execution_time": time.time() - start_time
+            })
 
         # Needed for cleaning up.
         shutil.rmtree = rmtree
@@ -63,11 +76,14 @@ def check_correctness(problem: Dict, completion: str, timeout: float,
             p.kill()
 
         if not result:
-            result.append("timed out")
+            result.append({
+                "status": "timed out",
+                "execution_time": timeout
+            })
 
         return dict(
             task_id=problem["task_id"],
-            passed=result[0] == "passed",
+            passed=result[0]["status"] == "passed",
             result=result[0],
             completion_id=completion_id,
         )
@@ -102,13 +118,13 @@ class WriteOnlyStringIO(io.StringIO):
     """ StringIO that throws an exception when it's read from """
 
     def read(self, *args, **kwargs):
-        raise IOError
+        raise IOError("Reading from this StringIO is not allowed")
 
     def readline(self, *args, **kwargs):
-        raise IOError
+        raise IOError("Reading from this StringIO is not allowed")
 
     def readlines(self, *args, **kwargs):
-        raise IOError
+        raise IOError("Reading from this StringIO is not allowed")
 
     def readable(self, *args, **kwargs):
         """ Returns True if the IO object can be read. """
